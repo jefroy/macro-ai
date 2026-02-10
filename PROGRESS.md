@@ -38,7 +38,7 @@ Target: **v1.0.0** — Production-ready with food UX improvements, recipes, expo
 - [x] Onboarding wizard (3-step: profile → goal → review targets)
 - [x] Auto-calculate targets from profile (TDEE via Mifflin-St Jeor)
 - [x] Dashboard shows real user targets from API
-- [ ] Single-user mode (skip auth when enabled)
+- [x] Single-user mode (skip auth when enabled)
 
 ### Week 4: Food Database + Search ✅
 
@@ -48,7 +48,7 @@ Target: **v1.0.0** — Production-ready with food UX improvements, recipes, expo
 - [x] Custom food creation endpoint
 - [x] Food search UI (dialog with search, select food, set quantity/meal)
 - [x] Custom food form (UI — create custom food in log dialog)
-- [ ] Redis caching for popular food searches
+- [x] Redis caching for popular food searches
 
 ### Week 5: Food Logging + Dashboard ✅
 

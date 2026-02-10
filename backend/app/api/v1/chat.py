@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from langchain_core.messages import AIMessageChunk, HumanMessage
 from pydantic import BaseModel
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, _get_single_user
+from app.config import settings
 from app.models.chat_session import ChatSession
 from app.models.user import User
 from app.services.ai.checkpointer import get_checkpointer
@@ -118,15 +119,18 @@ async def get_session_messages(session_id: str, user: User = Depends(get_current
 
 @router.websocket("/ws")
 async def chat_websocket(websocket: WebSocket, token: str = ""):
-    # Authenticate via query param token
-    if not token:
-        await websocket.close(code=4001, reason="Missing token")
-        return
+    # Authenticate via query param token (or bypass in single-user mode)
+    if settings.single_user_mode:
+        user = await _get_single_user()
+    else:
+        if not token:
+            await websocket.close(code=4001, reason="Missing token")
+            return
 
-    user = await get_user_from_token(token)
-    if not user:
-        await websocket.close(code=4001, reason="Unauthorized")
-        return
+        user = await get_user_from_token(token)
+        if not user:
+            await websocket.close(code=4001, reason="Unauthorized")
+            return
 
     # Check AI is configured
     if not user.ai_config or not user.ai_config.provider:

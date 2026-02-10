@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 
+from app.config import settings
 from app.models.user import User
 from pydantic import BaseModel
 
@@ -71,6 +72,28 @@ async def refresh(data: RefreshRequest):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
+        )
+
+    return TokenResponse(
+        access_token=create_access_token(str(user.id)),
+        refresh_token=create_refresh_token(str(user.id)),
+    )
+
+
+@router.post("/auto-login", response_model=TokenResponse)
+async def auto_login():
+    """Auto-login for single-user mode. Returns tokens for the default user."""
+    if not settings.single_user_mode:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
+
+    user = await User.find_one(User.email == "solo@macroai.local")
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Default user not found",
         )
 
     return TokenResponse(

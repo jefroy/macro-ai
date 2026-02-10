@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -9,12 +10,34 @@ from app.database import close_database, init_database
 from app.redis import close_redis, get_redis, init_redis
 from app.services.ai.checkpointer import close_checkpointer, init_checkpointer
 
+logger = logging.getLogger(__name__)
+
+
+async def ensure_single_user():
+    """Create a default user for single-user mode if none exists."""
+    from app.models.user import User
+    from app.services.auth_service import hash_password
+
+    existing = await User.find_one(User.email == "solo@macroai.local")
+    if existing:
+        logger.info("Single-user mode: default user already exists")
+        return
+    user = User(
+        email="solo@macroai.local",
+        password_hash=hash_password("single-user-mode"),
+        has_completed_onboarding=False,
+    )
+    await user.insert()
+    logger.info("Single-user mode: created default user (solo@macroai.local)")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_database()
     await init_redis()
     init_checkpointer(settings.mongodb_url, settings.mongodb_database)
+    if settings.single_user_mode:
+        await ensure_single_user()
     yield
     close_checkpointer()
     await close_database()

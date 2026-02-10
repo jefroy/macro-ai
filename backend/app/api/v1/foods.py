@@ -1,3 +1,6 @@
+import json
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
@@ -5,8 +8,13 @@ from app.api.deps import get_current_user
 from app.models.food import Food, Serving
 from app.models.food_log import FoodLog
 from app.models.user import User
+from app.redis import get_redis
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/foods", tags=["foods"])
+
+FOOD_SEARCH_TTL = 3600  # 1 hour
 
 
 class FoodResponse(BaseModel):
@@ -56,13 +64,34 @@ async def search_foods(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
+    cache_key = f"food:search:{q.lower().strip()}:{limit}:{offset}"
+
+    # Try Redis cache first
+    try:
+        redis = get_redis()
+        cached = await redis.get(cache_key)
+        if cached:
+            return FoodSearchResponse(**json.loads(cached))
+    except Exception:
+        logger.debug("Redis cache miss or error for key %s", cache_key)
+
+    # Cache miss — query MongoDB
     query = {"$text": {"$search": q}}
     total = await Food.find(query).count()
     foods = await Food.find(query).skip(offset).limit(limit).to_list()
-    return FoodSearchResponse(
+    response = FoodSearchResponse(
         results=[_food_response(f) for f in foods],
         total=total,
     )
+
+    # Store in Redis cache
+    try:
+        redis = get_redis()
+        await redis.set(cache_key, response.model_dump_json(), ex=FOOD_SEARCH_TTL)
+    except Exception:
+        logger.debug("Failed to cache food search results")
+
+    return response
 
 
 class RecentFoodResponse(BaseModel):
@@ -207,4 +236,16 @@ async def create_food(
         saturated_fat_g=data.saturated_fat_g,
     )
     await food.insert()
+
+    # Invalidate food search cache
+    try:
+        redis = get_redis()
+        cursor = b"0"
+        while cursor:
+            cursor, keys = await redis.scan(cursor=cursor, match="food:search:*", count=100)
+            if keys:
+                await redis.delete(*keys)
+    except Exception:
+        logger.debug("Failed to invalidate food search cache")
+
     return _food_response(food)

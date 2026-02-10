@@ -1,11 +1,15 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import { autoLogin } from "@/lib/api/auth";
 import { getMe } from "@/lib/api/user";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+
+const SINGLE_USER_MODE =
+  process.env.NEXT_PUBLIC_SINGLE_USER_MODE === "true";
 
 function LoadingScreen() {
   return (
@@ -17,8 +21,10 @@ function LoadingScreen() {
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const setAuthenticated = useAuthStore((s) => s.setAuthenticated);
   const router = useRouter();
   const pathname = usePathname();
+  const autoLoginAttempted = useRef(false);
 
   const { data: user, isLoading } = useQuery({
     queryKey: ["user", "me"],
@@ -28,7 +34,15 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated && SINGLE_USER_MODE && !autoLoginAttempted.current) {
+      autoLoginAttempted.current = true;
+      autoLogin()
+        .then(() => setAuthenticated(true))
+        .catch(() => router.replace("/login"));
+      return;
+    }
+
+    if (!isAuthenticated && !SINGLE_USER_MODE) {
       router.replace("/login");
       return;
     }
@@ -36,7 +50,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     if (user && !user.has_completed_onboarding && pathname !== "/onboarding") {
       router.replace("/onboarding");
     }
-  }, [isAuthenticated, user, pathname, router]);
+  }, [isAuthenticated, user, pathname, router, setAuthenticated]);
 
   if (!isAuthenticated) {
     return <LoadingScreen />;
@@ -55,15 +69,30 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
 export function GuestGuard({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const setAuthenticated = useAuthStore((s) => s.setAuthenticated);
   const router = useRouter();
+  const autoLoginAttempted = useRef(false);
 
   useEffect(() => {
     if (isAuthenticated) {
       router.replace("/dashboard");
+      return;
     }
-  }, [isAuthenticated, router]);
 
-  if (isAuthenticated) {
+    if (SINGLE_USER_MODE && !autoLoginAttempted.current) {
+      autoLoginAttempted.current = true;
+      autoLogin()
+        .then(() => {
+          setAuthenticated(true);
+          router.replace("/dashboard");
+        })
+        .catch(() => {
+          // Failed auto-login, stay on guest page
+        });
+    }
+  }, [isAuthenticated, router, setAuthenticated]);
+
+  if (isAuthenticated || (SINGLE_USER_MODE && !autoLoginAttempted.current)) {
     return null;
   }
 
