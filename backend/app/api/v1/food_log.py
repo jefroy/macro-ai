@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date as DateType
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/food-log", tags=["food-log"])
 
 class FoodLogEntry(BaseModel):
     id: str
-    date: date
+    date: DateType
     meal: str
     food_id: str | None
     food_name: str
@@ -31,7 +31,7 @@ class FoodLogEntry(BaseModel):
 
 
 class DailyTotals(BaseModel):
-    date: date
+    date: DateType
     calories: float
     protein_g: float
     carbs_g: float
@@ -77,7 +77,7 @@ class LogFoodRequest(BaseModel):
     sugar_g: float = 0
     sodium_mg: float = 0
     saturated_fat_g: float = 0
-    date: date | None = None
+    date: DateType | None = None
 
 
 @router.post("/", response_model=FoodLogEntry, status_code=201)
@@ -87,7 +87,7 @@ async def log_food(
 ):
     entry = FoodLog(
         user_id=str(user.id),
-        date=data.date or date.today(),
+        date=data.date or DateType.today(),
         meal=data.meal,
         food_id=data.food_id,
         food_name=data.food_name,
@@ -108,7 +108,7 @@ async def log_food(
 
 @router.get("/", response_model=list[FoodLogEntry])
 async def get_entries(
-    target_date: date = Query(default_factory=date.today),
+    target_date: DateType = Query(default_factory=DateType.today),
     user: User = Depends(get_current_user),
 ):
     entries = await FoodLog.find(
@@ -120,7 +120,7 @@ async def get_entries(
 
 @router.get("/totals", response_model=DailyTotals)
 async def get_daily_totals(
-    target_date: date = Query(default_factory=date.today),
+    target_date: DateType = Query(default_factory=DateType.today),
     user: User = Depends(get_current_user),
 ):
     entries = await FoodLog.find(
@@ -145,8 +145,8 @@ async def get_daily_totals(
 
 @router.get("/range", response_model=list[DailyTotals])
 async def get_range_totals(
-    start: date = Query(...),
-    end: date = Query(default_factory=date.today),
+    start: DateType = Query(...),
+    end: DateType = Query(default_factory=DateType.today),
     user: User = Depends(get_current_user),
 ):
     """Get daily totals for a date range (for charts)."""
@@ -157,7 +157,7 @@ async def get_range_totals(
     ).to_list()
 
     # Group by date
-    daily: dict[date, list[FoodLog]] = {}
+    daily: dict[DateType, list[FoodLog]] = {}
     for e in entries:
         daily.setdefault(e.date, []).append(e)
 
@@ -183,7 +183,7 @@ async def get_range_totals(
 
 @router.get("/insights")
 async def get_insights(
-    target_date: date = Query(default_factory=date.today),
+    target_date: DateType = Query(default_factory=DateType.today),
     user: User = Depends(get_current_user),
 ):
     """Get rule-based daily insights comparing intake to targets."""
@@ -192,7 +192,7 @@ async def get_insights(
 
 @router.get("/alerts")
 async def get_alerts(
-    target_date: date = Query(default_factory=date.today),
+    target_date: DateType = Query(default_factory=DateType.today),
     user: User = Depends(get_current_user),
 ):
     """Get nutrient alerts for the day based on intake limits."""
@@ -206,9 +206,9 @@ async def get_alerts(
 
 
 class CopyMealRequest(BaseModel):
-    source_date: date
+    source_date: DateType
     source_meal: str
-    target_date: date
+    target_date: DateType
     target_meal: str
 
 

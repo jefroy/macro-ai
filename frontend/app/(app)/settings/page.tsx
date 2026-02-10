@@ -40,6 +40,7 @@ import { toast } from "sonner";
 const PROVIDERS = [
   { value: "claude", label: "Anthropic (Claude)" },
   { value: "openai", label: "OpenAI" },
+  { value: "zhipu", label: "Zhipu AI (GLM)" },
   { value: "local", label: "Local (Ollama / vLLM)" },
   { value: "custom", label: "Custom (OpenAI-compatible)" },
 ];
@@ -47,6 +48,7 @@ const PROVIDERS = [
 const DEFAULT_MODELS: Record<string, string> = {
   claude: "claude-sonnet-4-5-20250929",
   openai: "gpt-4o",
+  zhipu: "glm-4-plus",
   local: "llama3.1",
   custom: "",
 };
@@ -154,7 +156,7 @@ export default function SettingsPage() {
     router.push("/login");
   }
 
-  const needsApiKey = provider === "claude" || provider === "openai";
+  const needsApiKey = provider === "claude" || provider === "openai" || provider === "zhipu";
   const needsBaseUrl = provider === "local" || provider === "custom";
 
   return (

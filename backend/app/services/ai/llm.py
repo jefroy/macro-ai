@@ -8,6 +8,9 @@ PROVIDER_PREFIXES = {
     "openai": "",
     "local": "openai/",
     "custom": "openai/",
+    "zhipu": "zai/",
+    "zai": "zai/",
+    "glm": "zai/",
 }
 
 

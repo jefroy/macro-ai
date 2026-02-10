@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date as DateType, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -214,7 +214,7 @@ async def delete_recipe(
 class LogRecipeRequest(BaseModel):
     meal: str = "lunch"
     servings: float = 1.0
-    date: date | None = None
+    date: DateType | None = None
 
 
 @router.post("/{recipe_id}/log", status_code=201)
@@ -233,7 +233,7 @@ async def log_recipe(
 
     entry = FoodLog(
         user_id=str(user.id),
-        date=data.date or date.today(),
+        date=data.date or DateType.today(),
         meal=data.meal,
         food_name=recipe.name,
         serving_label=f"{data.servings} serving{'s' if data.servings != 1 else ''}",

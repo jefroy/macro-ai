@@ -1,6 +1,6 @@
 import csv
 import io
-from datetime import date, timedelta
+from datetime import date as DateType, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 
 class DayReport(BaseModel):
-    date: date
+    date: DateType
     calories: float
     protein_g: float
     carbs_g: float
@@ -28,8 +28,8 @@ class DayReport(BaseModel):
 
 
 class WeeklyReport(BaseModel):
-    start_date: date
-    end_date: date
+    start_date: DateType
+    end_date: DateType
     days_logged: int
     daily_breakdown: list[DayReport]
     averages: dict[str, float]
@@ -40,7 +40,7 @@ class WeeklyReport(BaseModel):
 
 @router.get("/weekly", response_model=WeeklyReport)
 async def get_weekly_report(
-    end_date: date = Query(default_factory=date.today),
+    end_date: DateType = Query(default_factory=DateType.today),
     user: User = Depends(get_current_user),
 ):
     """Generate a comprehensive weekly nutrition report."""
@@ -55,7 +55,7 @@ async def get_weekly_report(
     ).to_list()
 
     # Group by date
-    daily: dict[date, list[FoodLog]] = {}
+    daily: dict[DateType, list[FoodLog]] = {}
     for e in entries:
         daily.setdefault(e.date, []).append(e)
 
@@ -164,8 +164,8 @@ async def get_weekly_report(
 
 @router.get("/export")
 async def export_food_log(
-    start: date = Query(...),
-    end: date = Query(default_factory=date.today),
+    start: DateType = Query(...),
+    end: DateType = Query(default_factory=DateType.today),
     format: str = Query("csv"),
     user: User = Depends(get_current_user),
 ):

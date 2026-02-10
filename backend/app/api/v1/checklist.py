@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date as DateType
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/checklist", tags=["checklist"])
 
 class ChecklistItemResponse(BaseModel):
     id: str
-    date: date
+    date: DateType
     title: str
     type: str
     checked: bool
@@ -38,7 +38,7 @@ def _item_response(item: ChecklistItem) -> ChecklistItemResponse:
 
 
 # Default auto-check items generated from user targets
-def _build_default_items(user: User, target_date: date) -> list[dict]:
+def _build_default_items(user: User, target_date: DateType) -> list[dict]:
     items = []
     t = user.targets
     if t:
@@ -69,7 +69,7 @@ def _build_default_items(user: User, target_date: date) -> list[dict]:
 
 
 async def _auto_check_items(
-    items: list[ChecklistItem], user_id: str, target_date: date
+    items: list[ChecklistItem], user_id: str, target_date: DateType
 ) -> list[ChecklistItem]:
     """Update auto-check items based on current food log data."""
     auto_items = [i for i in items if i.type == "auto" and i.auto_check_field]
@@ -106,7 +106,7 @@ async def _auto_check_items(
 
 @router.get("/", response_model=list[ChecklistItemResponse])
 async def get_checklist(
-    target_date: date = Query(default_factory=date.today),
+    target_date: DateType = Query(default_factory=DateType.today),
     user: User = Depends(get_current_user),
 ):
     user_id = str(user.id)
@@ -159,7 +159,7 @@ async def toggle_checklist_item(
 @router.post("/", response_model=ChecklistItemResponse, status_code=201)
 async def add_checklist_item(
     data: CreateChecklistItemRequest,
-    target_date: date = Query(default_factory=date.today),
+    target_date: DateType = Query(default_factory=DateType.today),
     user: User = Depends(get_current_user),
 ):
     item = ChecklistItem(
@@ -186,7 +186,7 @@ async def delete_checklist_item(
 
 
 class ChecklistSummary(BaseModel):
-    date: date
+    date: DateType
     total: int
     checked: int
     completion: float
@@ -196,7 +196,7 @@ class ChecklistSummary(BaseModel):
 async def get_streak(user: User = Depends(get_current_user)):
     """Get the user's current checklist completion streak (consecutive days >= 80% complete)."""
     user_id = str(user.id)
-    today = date.today()
+    today = DateType.today()
     streak = 0
 
     # Walk backwards from yesterday (today might not be complete yet)

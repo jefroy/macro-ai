@@ -1208,15 +1208,15 @@ Users configure their AI provider through the settings UI:
 ```
 
 **Supported providers:**
-| Provider | Config Required | Notes |
-|----------|----------------|-------|
-| Claude (Anthropic) | API key | Recommended default |
-| OpenAI | API key | GPT-4o, GPT-4 |
-| GLM (Zhipu) | API key | GLM-4 |
-| Ollama (local) | Base URL | No API key needed |
-| vLLM (local) | Base URL | OpenAI-compatible |
-| llama.cpp (local) | Base URL | OpenAI-compatible |
-| Custom | Base URL + optional API key | Any OpenAI-compatible endpoint |
+| Provider | Config Required | Model Examples | Notes |
+|----------|----------------|----------------|-------|
+| Claude (Anthropic) | API key | claude-sonnet-4-5-20250929 | Recommended default |
+| OpenAI | API key | gpt-4o, gpt-4-turbo | GPT-4o, GPT-4 |
+| GLM/Zhipu/Z.AI | API key | glm-4-plus, glm-4-air, glm-4-flash | Chinese LLM, uses `zai/` prefix via LiteLLM |
+| Ollama (local) | Base URL | llama3, mistral, etc. | No API key needed |
+| vLLM (local) | Base URL | Any supported | OpenAI-compatible |
+| llama.cpp (local) | Base URL | Any supported | OpenAI-compatible |
+| Custom | Base URL + optional API key | Any | Any OpenAI-compatible endpoint |
 
 ### 9.3 Context Building
 

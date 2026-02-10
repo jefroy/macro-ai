@@ -229,10 +229,9 @@ Target: **v1.0.0** — Production-ready with food UX improvements, recipes, expo
 ## Deferred
 
 - [ ] Serwist service worker + offline support
-- [ ] End-to-end testing
+- [ ] E2E testing via Playwright MCP (see e2e/docs/TESTING-PLAN.md — 67 tests, 12 suites)
 - [ ] Barcode scanning
 - [ ] Multi-language support (i18n)
-- [ ] Community food submissions
 - [ ] Performance optimization + monitoring
 
 ---

@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date as DateType, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -12,13 +12,13 @@ router = APIRouter(prefix="/weight", tags=["weight"])
 
 class WeightEntry(BaseModel):
     id: str
-    date: date
+    date: DateType
     weight_kg: float
     note: str
 
 
 class LogWeightRequest(BaseModel):
-    date: date | None = None
+    date: DateType | None = None
     weight_kg: float
     note: str = ""
 
@@ -43,7 +43,7 @@ async def log_weight(
     data: LogWeightRequest,
     user: User = Depends(get_current_user),
 ):
-    target_date = data.date or date.today()
+    target_date = data.date or DateType.today()
 
     # Upsert: replace existing entry for the same date
     existing = await Weight.find_one(
@@ -71,7 +71,7 @@ async def get_entries(
     days: int = Query(default=30, ge=7, le=365),
     user: User = Depends(get_current_user),
 ):
-    cutoff = date.today() - timedelta(days=days)
+    cutoff = DateType.today() - timedelta(days=days)
     entries = await Weight.find(
         Weight.user_id == str(user.id),
         Weight.date >= cutoff,
@@ -84,7 +84,7 @@ async def get_trend(
     days: int = Query(default=30, ge=7, le=365),
     user: User = Depends(get_current_user),
 ):
-    cutoff = date.today() - timedelta(days=days)
+    cutoff = DateType.today() - timedelta(days=days)
     entries = await Weight.find(
         Weight.user_id == str(user.id),
         Weight.date >= cutoff,
@@ -94,7 +94,7 @@ async def get_trend(
 
     # 7-day rolling average
     rolling_avg = None
-    week_ago = date.today() - timedelta(days=7)
+    week_ago = DateType.today() - timedelta(days=7)
     recent = [e for e in entries if e.date >= week_ago]
     if recent:
         rolling_avg = round(sum(e.weight_kg for e in recent) / len(recent), 1)

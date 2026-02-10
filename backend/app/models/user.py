@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from beanie import Document
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 
 class Profile(BaseModel):
@@ -23,7 +23,7 @@ class Targets(BaseModel):
 
 
 class AIConfig(BaseModel):
-    provider: str = ""  # "claude", "openai", "local", "custom"
+    provider: str = ""  # "claude", "openai", "local", "custom", "zhipu", "glm"
     model: str = ""
     api_key: str = ""  # encrypted at rest
     base_url: str = ""  # for local/custom providers

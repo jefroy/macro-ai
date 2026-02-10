@@ -1,13 +1,23 @@
-# MacroAI — E2E Testing Plan (Playwright MCP)
+# MacroAI — E2E Testing Plan (Playwright CLI)
 
 ## Overview
 
-This document is the **canonical testing plan** for an AI agent using **Playwright MCP** to perform full end-to-end testing against a running MacroAI instance. It covers all 13 routes, 11 API routers, and core user journeys.
+This document is the **canonical testing plan** for performing full end-to-end testing against a running MacroAI instance using **playwright-cli** (the terminal interface to Playwright MCP). It covers all 13 routes, 11 API routers, and core user journeys.
 
 - **67 test cases** across **12 suites**
 - Frontend: `http://localhost:3000`
 - Backend: `http://localhost:8000`
 - Execution: **sequential** (suites depend on data from earlier suites)
+
+## What is playwright-cli?
+
+`playwright-cli` is a command-line tool that provides terminal access to Playwright MCP browser automation capabilities. It allows running browser tests interactively or via scripts without writing TypeScript/JavaScript test files.
+
+**Key advantages:**
+- No need to write/maintain TypeScript test files
+- Can be run directly from terminal or shell scripts
+- Supports interactive testing sessions
+- All browser automation: navigation, form filling, clicking, screenshots, assertions via JavaScript eval
 
 ## Quick Links
 
@@ -48,6 +58,102 @@ Before testing, ensure:
 4. **No existing test user** — Suite 1 creates `testuser@macroai.dev`. If the user already exists from a prior run, either:
    - Drop the MongoDB `users` collection, or
    - Skip T1.1/T1.2 and start from T1.3 (login)
+
+5. **playwright-cli installed** — Run `playwright-cli --version` to verify
+
+---
+
+## Playwright-CLI Quick Reference
+
+### Starting a Browser Session
+
+```bash
+# Open browser (defaults to chromium)
+playwright-cli open http://localhost:3000
+
+# Open with specific session name (useful for multiple sessions)
+playwright-cli -s=test-session open http://localhost:3000
+```
+
+### Common Commands
+
+| Category | Command | Description |
+|----------|---------|-------------|
+| **Navigation** | `goto <url>` | Navigate to URL |
+| | `go-back` | Go back in history |
+| | `reload` | Reload current page |
+| **Interaction** | `click <ref>` | Click element (use CSS selector or ref from snapshot) |
+| | `type <text>` | Type text into focused element |
+| | `fill <ref> <text>` | Fill text into specific element |
+| | `select <ref> <value>` | Select dropdown option |
+| | `check <ref>` / `uncheck <ref>` | Toggle checkboxes |
+| **Inspection** | `snapshot` | Get page snapshot with element refs |
+| | `screenshot [ref]` | Take screenshot of page or element |
+| **Scripting** | `eval <js> [ref]` | Evaluate JavaScript (assertions, checks) |
+| | `run-code <code>` | Run multi-line Playwright code |
+| **Session** | `close` | Close browser |
+| | `list` | List all sessions |
+| | `close-all` | Close all sessions |
+
+### Element References
+
+After running `snapshot`, elements get numeric refs like `0`, `1`, `2`:
+
+```bash
+playwright-cli snapshot
+# Output shows: [0] button "Sign in", [1] input#email, etc.
+
+playwright-cli click 0        # Click by ref
+playwright-cli fill 1 "test@example.com"  # Fill by ref
+```
+
+Or use CSS selectors directly:
+
+```bash
+playwright-cli click "#submit-button"
+playwright-cli fill "#email" "test@example.com"
+```
+
+### Assertions via eval
+
+The `eval` command runs JavaScript and returns the result. Use it for assertions:
+
+```bash
+# Check if element exists
+playwright-cli eval "!!document.querySelector('#dashboard')"
+
+# Check text content
+playwright-cli eval "document.querySelector('h1').textContent"
+
+# Check localStorage
+playwright-cli eval "localStorage.getItem('access_token')"
+
+# Wait for element (returns true when found)
+playwright-cli eval "!!document.querySelector('[data-sonner-toast]')"
+```
+
+### Wait Strategies
+
+```bash
+# Simple wait (JavaScript sleep via eval)
+playwright-cli eval "new Promise(r => setTimeout(r, 1000))"
+
+# Poll for element (run in loop until true)
+playwright-cli eval "!!document.querySelector('#loading')" && sleep 1
+```
+
+### Sessions
+
+```bash
+# List active sessions
+playwright-cli list
+
+# Close current session
+playwright-cli close
+
+# Close all sessions
+playwright-cli close-all
+```
 
 ---
 
@@ -90,17 +196,49 @@ TEST_USER_ACTIVITY = "moderate"  (lowercase — this is the select value)
 
 ## Authentication Pattern
 
-Most suites require a logged-in user. Before each test:
+Most suites require a logged-in user. Before each test, use this sequence:
 
-1. Navigate to `http://localhost:3000/login`
-2. Fill `#email` → `testuser@macroai.dev`
-3. Fill `#password` → `TestPass123!`
-4. Click button `"Sign in"`
-5. Wait for URL to contain `/dashboard`
+### Using playwright-cli:
 
-**Alternative:** If the test context preserves `localStorage`, check for `access_token`:
-```js
-const hasToken = await page.evaluate(() => !!localStorage.getItem("access_token"));
+```bash
+# Navigate to login
+playwright-cli goto http://localhost:3000/login
+
+# Fill credentials (using CSS selectors)
+playwright-cli fill "#email" "testuser@macroai.dev"
+playwright-cli fill "#password" "TestPass123!"
+
+# Click sign in (by text or selector)
+playwright-cli click "button[type='submit']"
+# OR get ref from snapshot first
+playwright-cli snapshot
+playwright-cli click <ref-for-sign-in-button>
+
+# Verify login succeeded - check URL contains dashboard
+playwright-cli eval "window.location.href.includes('dashboard')"
+```
+
+### Saving Session for Reuse
+
+To avoid logging in for every test suite:
+
+```bash
+# After successful login, save session state
+playwright-cli state-save /tmp/macroai-test-session.json
+
+# In subsequent tests, restore before starting
+playwright-cli state-load /tmp/macroai-test-session.json
+```
+
+### Checking Auth Status
+
+```bash
+# Check if logged in via localStorage
+playwright-cli eval "!!localStorage.getItem('access_token')"
+# Returns: true (logged in) or false (not logged in)
+
+# Get current user info from localStorage
+playwright-cli eval "JSON.parse(localStorage.getItem('user') || '{}')"
 ```
 
 ---
@@ -112,55 +250,94 @@ This app uses ShadCN UI (built on Radix primitives). These are NOT native HTML e
 ### Select (Dropdown)
 ShadCN Select renders as a `<button role="combobox">` trigger + a portal popover.
 
-```
-1. Click the trigger: page.locator('[role="combobox"]').click()
-2. Click the option:  page.getByRole('option', { name: 'Lunch' }).click()
+**Using playwright-cli:**
+```bash
+# Click the combobox to open dropdown
+playwright-cli click "[role='combobox']"
+
+# Wait for dropdown to render, then click option
+playwright-cli eval "new Promise(r => setTimeout(r, 200))"
+playwright-cli click "[role='option']:has-text('Lunch')"
 ```
 
 ### Dialog
 ShadCN Dialog renders in a portal with `role="dialog"`.
 
-```
-const dialog = page.locator('[role="dialog"]')
-// All assertions inside the dialog should be scoped:
-await dialog.getByRole('button', { name: 'Log Food' }).click()
+**Using playwright-cli:**
+```bash
+# Open dialog (click trigger)
+playwright-cli click "text='Add Food'"
+
+# Interact with dialog elements - scope to dialog
+playwright-cli click "[role='dialog'] button:has-text('Log Food')"
+
+# Or click by ref from snapshot
+playwright-cli snapshot
+# Look for dialog elements in output
+playwright-cli click <ref-for-log-food-button>
 ```
 
 ### AlertDialog (Confirmation)
 Renders with `role="alertdialog"`. Used for all destructive actions.
 
-```
-const alert = page.locator('[role="alertdialog"]')
-await alert.getByRole('button', { name: 'Delete' }).click()
-// OR cancel:
-await alert.getByRole('button', { name: 'Cancel' }).click()
+**Using playwright-cli:**
+```bash
+# Confirm deletion
+playwright-cli click "[role='alertdialog'] button:has-text('Delete')"
+
+# Cancel
+playwright-cli click "[role='alertdialog'] button:has-text('Cancel')"
 ```
 
 ### Toast (Sonner)
 Toast notifications from the `sonner` library.
 
-```
-await expect(page.locator('[data-sonner-toast]', { hasText: 'Food logged' }))
-  .toBeVisible({ timeout: 10_000 })
+**Using playwright-cli:**
+```bash
+# Wait for and verify toast
+playwright-cli eval "new Promise(r => setTimeout(r, 500))"
+playwright-cli eval "!!document.querySelector('[data-sonner-toast]')"
+
+# Get toast text content
+playwright-cli eval "document.querySelector('[data-sonner-toast]')?.textContent"
 ```
 
 ### Switch (Toggle)
 Radix Switch with `role="switch"` and `data-state="checked"` / `data-state="unchecked"`.
 
-```
-const toggle = page.locator('[role="switch"]').first()
-await toggle.click()
+**Using playwright-cli:**
+```bash
+# Toggle switch
+playwright-cli click "[role='switch']"
+
+# Check state
+playwright-cli eval "document.querySelector('[role=\"switch\"]')?.dataset.state"
+# Returns: "checked" or "unchecked"
 ```
 
 ---
 
 ## Wait Strategies
 
-- **After navigation:** `await page.waitForURL('**/dashboard', { timeout: 15_000 })`
-- **After mutation:** Wait for toast: `await expect(toast).toBeVisible({ timeout: 10_000 })`
-- **After search:** Debounce is ~300ms — use `await page.waitForTimeout(500)` then assert results
-- **For data load:** Wait for a known text element: `await expect(page.getByText('Calories')).toBeVisible({ timeout: 15_000 })`
-- **For file download:** `const download = await page.waitForEvent('download', { timeout: 10_000 })`
+**Using playwright-cli:**
+
+| Scenario | Command |
+|----------|---------|
+| **After navigation** | `playwright-cli eval "new Promise(r => setTimeout(r, 1000))"` then check URL |
+| **After mutation** | `playwright-cli eval "!!document.querySelector('[data-sonner-toast]')"` (poll until true) |
+| **After search** | `playwright-cli eval "new Promise(r => setTimeout(r, 500))"` (debounce is ~300ms) |
+| **For data load** | `playwright-cli eval "!!document.querySelector('text=Calories')"` |
+| **For element visible** | `playwright-cli eval "!!document.querySelector('.loading') === false"` |
+
+**Helper function for waiting (via run-code):**
+```bash
+playwright-cli run-code "
+while (!document.querySelector('[data-sonner-toast]')) {
+  await new Promise(r => setTimeout(r, 100));
+}
+console.log('Toast appeared');
+"
+```
 
 ---
 
@@ -171,16 +348,20 @@ await toggle.click()
 | Desktop | 1280 | 800 |
 | Mobile | 375 | 667 |
 
-```js
-await page.setViewportSize({ width: 375, height: 667 })  // mobile
-await page.setViewportSize({ width: 1280, height: 800 })  // desktop
+**Using playwright-cli:**
+```bash
+# Mobile viewport
+playwright-cli resize 375 667
+
+# Desktop viewport
+playwright-cli resize 1280 800
 ```
 
 ---
 
 ## File Structure
 
-The Playwright test implementations live in `e2e/tests/`:
+The test documentation lives in `e2e/docs/`:
 
 ```
 e2e/
@@ -201,4 +382,77 @@ e2e/
     ├── 01-auth-onboarding.spec.ts
     ├── 02-dashboard.spec.ts
     ├── ... (12 spec files)
+```
+
+---
+
+## Example: Complete Test Workflow
+
+Here's a complete example of testing user registration using playwright-cli:
+
+```bash
+#!/bin/bash
+# Suite 1.1: User Registration
+
+# Start browser session
+playwright-cli open http://localhost:3000/register
+
+# Take initial screenshot
+playwright-cli screenshot /tmp/test-01-initial.png
+
+# Fill registration form
+playwright-cli fill "#email" "testuser@macroai.dev"
+playwright-cli fill "#password" "TestPass123!"
+playwright-cli fill "#confirmPassword" "TestPass123!"
+
+# Submit form
+playwright-cli click "button[type='submit']"
+
+# Wait for navigation - should redirect to onboarding
+playwright-cli eval "new Promise(r => setTimeout(r, 2000))"
+
+# Verify we're on onboarding page
+ONBOARDING=$(playwright-cli eval "window.location.href.includes('onboarding')")
+if [ "$ONBOARDING" != "true" ]; then
+  echo "FAIL: Not redirected to onboarding"
+  playwright-cli screenshot /tmp/test-01-fail.png
+  exit 1
+fi
+
+# Verify toast notification
+TOAST=$(playwright-cli eval "document.querySelector('[data-sonner-toast]')?.textContent.includes('Registration successful')")
+if [ "$TOAST" != "true" ]; then
+  echo "FAIL: No success toast"
+  exit 1
+fi
+
+echo "PASS: User registration successful"
+playwright-cli screenshot /tmp/test-01-pass.png
+playwright-cli close
+```
+
+---
+
+## Running Test Suites Interactively
+
+For interactive testing (exploring the UI while developing tests):
+
+```bash
+# Start session
+playwright-cli -s=macro-test open http://localhost:3000
+
+# ... perform actions ...
+
+# Take snapshot to see element refs
+playwright-cli snapshot
+
+# Use refs for clicking
+playwright-cli click 5
+
+# Eval to check state
+playwright-cli eval "document.title"
+
+# Keep session open for inspection
+# Close when done:
+playwright-cli close
 ```

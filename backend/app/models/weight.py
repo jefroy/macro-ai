@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date as DateType, datetime
 
 from beanie import Document
 from pydantic import Field
@@ -6,7 +6,7 @@ from pydantic import Field
 
 class Weight(Document):
     user_id: str
-    date: date = Field(default_factory=date.today)
+    date: DateType = Field(default_factory=DateType.today)
     weight_kg: float
     note: str = ""
 
