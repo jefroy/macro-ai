@@ -118,23 +118,33 @@ async def get_session_messages(session_id: str, user: User = Depends(get_current
 
 
 @router.websocket("/ws")
-async def chat_websocket(websocket: WebSocket, token: str = ""):
-    # Authenticate via query param token (or bypass in single-user mode)
+async def chat_websocket(websocket: WebSocket):
+    # Accept first, then authenticate via first message
+    # (tokens in URL query strings exceed websockets library line length limits)
+    await websocket.accept()
+
     if settings.single_user_mode:
         user = await _get_single_user()
     else:
-        if not token:
-            await websocket.close(code=4001, reason="Missing token")
-            return
-
-        user = await get_user_from_token(token)
-        if not user:
-            await websocket.close(code=4001, reason="Unauthorized")
+        # Wait for auth message
+        try:
+            raw = await websocket.receive_text()
+            msg = json.loads(raw)
+            if msg.get("type") != "auth" or not msg.get("token"):
+                await websocket.send_json({"type": "chat.error", "error": "First message must be auth", "code": "AUTH_REQUIRED"})
+                await websocket.close(code=4001, reason="Missing auth")
+                return
+            user = await get_user_from_token(msg["token"])
+            if not user:
+                await websocket.send_json({"type": "chat.error", "error": "Invalid or expired token", "code": "UNAUTHORIZED"})
+                await websocket.close(code=4001, reason="Unauthorized")
+                return
+        except Exception:
+            await websocket.close(code=4001, reason="Auth failed")
             return
 
     # Check AI is configured
     if not user.ai_config or not user.ai_config.provider:
-        await websocket.accept()
         await websocket.send_json({
             "type": "chat.error",
             "error": "AI provider not configured. Go to Settings to add your API key.",
@@ -142,8 +152,6 @@ async def chat_websocket(websocket: WebSocket, token: str = ""):
         })
         await websocket.close()
         return
-
-    await websocket.accept()
 
     checkpointer = get_checkpointer()
     graph = build_agent_graph(checkpointer)

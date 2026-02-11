@@ -34,9 +34,13 @@ export class ChatWebSocket {
     this.token = token;
     this.handlers.onStatusChange("connecting");
 
-    this.ws = new WebSocket(`${WS_URL}/api/v1/chat/ws?token=${token}`);
+    // Connect without token in URL — send it as first message after open
+    // (long JWTs in query strings exceed websockets library line length limits)
+    this.ws = new WebSocket(`${WS_URL}/api/v1/chat/ws`);
 
     this.ws.onopen = () => {
+      // Send auth token as first message
+      this.ws!.send(JSON.stringify({ type: "auth", token }));
       this.reconnectAttempts = 0;
       this.handlers.onStatusChange("connected");
       this.startPingInterval();

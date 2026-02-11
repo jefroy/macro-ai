@@ -136,7 +136,10 @@ async def get_recent_foods(
         {"$sort": {"count": -1}},
         {"$limit": limit},
     ]
-    results = await FoodLog.aggregate(pipeline).to_list()
+    # Use motor collection directly — Beanie's .aggregate() wrapper
+    # incorrectly awaits the cursor creation in newer Motor versions
+    cursor = FoodLog.get_motor_collection().aggregate(pipeline)
+    results = await cursor.to_list(length=None)
     return [
         RecentFoodResponse(
             food_name=r["_id"],

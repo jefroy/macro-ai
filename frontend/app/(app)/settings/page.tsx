@@ -48,7 +48,7 @@ const PROVIDERS = [
 const DEFAULT_MODELS: Record<string, string> = {
   claude: "claude-sonnet-4-5-20250929",
   openai: "gpt-4o",
-  zhipu: "glm-4-plus",
+  zhipu: "glm-4.7-flash",
   local: "llama3.1",
   custom: "",
 };
