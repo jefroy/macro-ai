@@ -15,8 +15,16 @@ type WSHandler = {
   onStatusChange: (status: "connecting" | "connected" | "disconnected") => void;
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const WS_URL = API_URL.replace(/^http/, "ws");
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+
+function getWsUrl(): string {
+  if (API_URL) {
+    return API_URL.replace(/^http/, "ws");
+  }
+  // Same-origin: derive WS URL from current page location (works behind nginx)
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}`;
+}
 
 export class ChatWebSocket {
   private ws: WebSocket | null = null;
@@ -36,7 +44,7 @@ export class ChatWebSocket {
 
     // Connect without token in URL — send it as first message after open
     // (long JWTs in query strings exceed websockets library line length limits)
-    this.ws = new WebSocket(`${WS_URL}/api/v1/chat/ws`);
+    this.ws = new WebSocket(`${getWsUrl()}/api/v1/chat/ws`);
 
     this.ws.onopen = () => {
       // Send auth token as first message

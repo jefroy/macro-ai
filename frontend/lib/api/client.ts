@@ -1,6 +1,6 @@
 import ky, { type BeforeRetryState } from "ky";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 async function refreshToken(): Promise<string | null> {
   const refresh = localStorage.getItem("refresh_token");
