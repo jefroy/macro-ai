@@ -1,8 +1,8 @@
 # MacroAI — Architecture & Design Specification
 
-**Version**: 1.4
-**Last Updated**: 2026-02-09
-**Status**: Phase 4 Complete (v1.0.0 Production-Ready)
+**Version**: 1.5
+**Last Updated**: 2026-02-11
+**Status**: Phase 4 Complete (v1.0.0 Production-Ready, Docker verified)
 **Companion Document**: [PRD.md](./PRD.md)
 
 ---
@@ -451,10 +451,8 @@ macro-ai/
 │   ├── API.md                         # Detailed API documentation (auto-generated from OpenAPI)
 │   └── SELF_HOSTING.md                # Self-hosting guide
 │
-├── docker/
-│   ├── frontend.Dockerfile            # Multi-stage build for Next.js
-│   ├── backend.Dockerfile             # Multi-stage build for FastAPI
-│   └── mongo-init.js                  # MongoDB initialization script (indexes)
+├── nginx/
+│   └── nginx.conf                     # Reverse proxy config (frontend, API, WebSocket)
 │
 ├── scripts/
 │   ├── seed-db.sh                     # Seed the food database
@@ -2650,130 +2648,203 @@ frontend/
 
 ## 15. DevOps & Deployment
 
-### 15.1 Docker Multi-Stage Builds
+### 15.1 Architecture
 
-**Frontend Dockerfile:**
+All traffic flows through an **nginx reverse proxy** on port 80. The browser only talks to nginx, which routes requests to the appropriate backend service. This eliminates CORS issues and allows `NEXT_PUBLIC_API_URL` to be empty (same-origin relative URLs).
+
+```
+                    ┌──────────────┐
+    Browser ──────► │  nginx :80   │
+                    │              │
+                    │  /           │──► frontend :3000
+                    │  /api/       │──► backend  :8000
+                    │  /api/v1/    │──► backend  :8000
+                    │  /api/v1/    │
+                    │   chat/ws    │──► backend  :8000 (WebSocket upgrade)
+                    │  /health     │──► backend  :8000
+                    └──────────────┘
+```
+
+**Key design decisions:**
+- `NEXT_PUBLIC_API_URL=""` (empty) — frontend uses relative URLs, nginx proxies to backend on same origin
+- `MONGODB_URL` and `REDIS_URL` are overridden in docker-compose.yml `environment` (takes precedence over `.env` file) so `.env` can keep `localhost` values for local dev
+- Frontend/backend use `expose` (internal only), not `ports` — only nginx exposes port 80
+- MongoDB (27017) and Redis (6379) expose ports for external tooling/debugging
+
+### 15.2 Docker Multi-Stage Builds
+
+**Frontend Dockerfile** (`frontend/Dockerfile`):
 ```dockerfile
-# docker/frontend.Dockerfile
-
-# Stage 1: Dependencies
+# --- Dependencies ---
 FROM node:22-alpine AS deps
 WORKDIR /app
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --frozen-lockfile
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Stage 2: Build
-FROM node:22-alpine AS builder
+# --- Build ---
+FROM node:22-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY frontend/ .
+COPY . .
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Build args inlined into the JS bundle at build time
+ARG NEXT_PUBLIC_API_URL=""
+ARG NEXT_PUBLIC_SINGLE_USER_MODE=false
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_SINGLE_USER_MODE=$NEXT_PUBLIC_SINGLE_USER_MODE
+
 RUN npm run build
 
-# Stage 3: Production
+# --- Production ---
 FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# Copy only what's needed
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
 
+COPY --from=build /app/public ./public
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
 EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
 CMD ["node", "server.js"]
 ```
 
-**Backend Dockerfile:**
+**Important**: `NEXT_PUBLIC_*` vars are inlined at build time via `ARG` → `ENV`. The empty default for `NEXT_PUBLIC_API_URL` means the Docker image works behind nginx (same-origin). Override via build args for other setups.
+
+**Backend Dockerfile** (`backend/Dockerfile`):
 ```dockerfile
-# docker/backend.Dockerfile
-
-# Stage 1: Dependencies
-FROM python:3.12-slim AS deps
+FROM python:3.12-slim AS base
 WORKDIR /app
-COPY backend/pyproject.toml backend/uv.lock* ./
-RUN pip install uv && uv sync --frozen --no-dev
 
-# Stage 2: Production
-FROM python:3.12-slim AS runner
-WORKDIR /app
-COPY --from=deps /app/.venv ./.venv
-COPY backend/app ./app
-COPY backend/seeds ./seeds
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-ENV PATH="/app/.venv/bin:$PATH"
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-cache
+
+COPY . .
+
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD [".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-### 15.2 Docker Compose (Production)
+**Important**: Uses `uv sync --frozen` (not `uv pip install`). The `--frozen` flag enforces `uv.lock` for reproducible builds. Uvicorn runs from `.venv/bin/` where `uv sync` installs it.
+
+### 15.3 Nginx Config
+
+```nginx
+# nginx/nginx.conf
+events {
+    worker_connections 1024;
+}
+
+http {
+    upstream frontend { server frontend:3000; }
+    upstream backend  { server backend:8000; }
+
+    server {
+        listen 80;
+
+        # WebSocket — must come before /api/
+        location /api/v1/chat/ws {
+            proxy_pass http://backend;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+        }
+
+        # Health check
+        location = /health {
+            proxy_pass http://backend;
+            proxy_set_header Host $host;
+        }
+
+        # API
+        location /api/ {
+            proxy_pass http://backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Frontend (catch-all)
+        location / {
+            proxy_pass http://frontend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
+```
+
+### 15.4 Docker Compose (Production)
 
 ```yaml
 # docker-compose.yml
-
 services:
-  frontend:
-    build:
-      context: .
-      dockerfile: docker/frontend.Dockerfile
+  nginx:
+    image: nginx:alpine
     ports:
-      - "3000:3000"
-    environment:
-      - BACKEND_URL=http://backend:8000
-      - NEXT_PUBLIC_WS_URL=ws://localhost:8000
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      backend:
-        condition: service_healthy
+      - frontend
+      - backend
     restart: unless-stopped
 
   backend:
-    build:
-      context: .
-      dockerfile: docker/backend.Dockerfile
-    ports:
-      - "8000:8000"
+    build: ./backend
+    expose:
+      - "8000"
+    env_file: .env
     environment:
-      - MONGODB_URL=mongodb://mongodb:27017
-      - MONGODB_DATABASE=macroai
-      - REDIS_URL=redis://redis:6379
-      - SECRET_KEY=${SECRET_KEY}
-      - CORS_ORIGINS=["http://localhost:3000"]
-      - SINGLE_USER_MODE=${SINGLE_USER_MODE:-false}
+      - MONGODB_URL=mongodb://mongodb:27017    # Override .env localhost
+      - REDIS_URL=redis://redis:6379           # Override .env localhost
     depends_on:
       mongodb:
         condition: service_healthy
       redis:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     restart: unless-stopped
 
-  worker:
+  frontend:
     build:
-      context: .
-      dockerfile: docker/backend.Dockerfile
-    command: arq app.tasks.worker.WorkerSettings
-    environment:
-      - MONGODB_URL=mongodb://mongodb:27017
-      - MONGODB_DATABASE=macroai
-      - REDIS_URL=redis://redis:6379
-      - SECRET_KEY=${SECRET_KEY}
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ""                            # Same-origin via nginx
+        NEXT_PUBLIC_SINGLE_USER_MODE: "${NEXT_PUBLIC_SINGLE_USER_MODE:-false}"
+    expose:
+      - "3000"
     depends_on:
-      - mongodb
-      - redis
+      - backend
     restart: unless-stopped
 
   mongodb:
     image: mongo:7
-    volumes:
-      - mongo_data:/data/db
-      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
     ports:
       - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -2781,11 +2852,10 @@ services:
 
   redis:
     image: redis:7-alpine
-    volumes:
-      - redis_data:/data
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -2798,33 +2868,23 @@ volumes:
   redis_data:
 ```
 
-### 15.3 Docker Compose (Development)
+### 15.5 Local Development (without Docker)
 
-```yaml
-# docker-compose.dev.yml
+Run MongoDB + Redis via Docker, then run frontend and backend natively with hot reload:
 
-services:
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.dev
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend/src:/app/src      # Hot reload
-    environment:
-      - BACKEND_URL=http://backend:8000
-      - NEXT_PUBLIC_WS_URL=ws://localhost:8000
+```bash
+docker compose up mongodb redis -d
 
-  backend:
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    volumes:
-      - ./backend/app:/app/app        # Hot reload
-    ports:
-      - "8000:8000"
+# Backend
+cd backend && uv sync && .venv/bin/uvicorn app.main:app --reload
 
-  # MongoDB and Redis same as production
+# Frontend — set NEXT_PUBLIC_API_URL for cross-origin dev
+cd frontend && npm install
+echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
+npm run dev
 ```
+
+The `.env` file uses `localhost` URLs which work for local dev. Docker Compose overrides these with service names (`mongodb`, `redis`) via the `environment` key.
 
 ### 15.4 CI/CD Pipeline
 

@@ -27,16 +27,22 @@ cd macro-ai
 cp .env.example .env
 # Edit .env — set SECRET_KEY (generate with: openssl rand -hex 32)
 
-# Start all services
+# Start all services (builds frontend, backend, nginx, MongoDB, Redis)
 docker compose up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000), register an account, and complete onboarding.
+Open [http://localhost](http://localhost) (port 80 via nginx), register an account, and complete onboarding.
+
+Nginx serves as a reverse proxy — all traffic goes through port 80:
+- `/` → Next.js frontend
+- `/api/` → FastAPI backend
+- `/api/v1/chat/ws` → WebSocket (AI chat)
+- `/health` → Backend health check
 
 ### Seed the Food Database
 
 ```bash
-docker compose exec backend python -m seeds.seed_foods
+docker compose exec backend .venv/bin/python -m seeds.seed_foods
 ```
 
 ### Configure AI Chat
@@ -46,20 +52,21 @@ docker compose exec backend python -m seeds.seed_foods
 3. Enter your API key and model name
 4. Start chatting in the **AI Chat** tab
 
-## Development
+## Development (without Docker)
 
 ```bash
-# Start MongoDB + Redis
+# Start MongoDB + Redis via Docker
 docker compose up mongodb redis -d
 
 # Backend (terminal 1)
 cd backend
-uv pip install -e ".[dev]"
-uvicorn app.main:app --reload
+uv sync
+.venv/bin/uvicorn app.main:app --reload
 
-# Frontend (terminal 2)
+# Frontend (terminal 2) — needs NEXT_PUBLIC_API_URL for cross-origin dev
 cd frontend
 npm install
+echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
 npm run dev
 ```
 
@@ -76,6 +83,7 @@ npm run dev
 | Backend | FastAPI, Python 3.12+, Beanie ODM |
 | Database | MongoDB 7, Redis 7 |
 | AI | LangGraph 1.0 (ReAct agent, 12 tools) + ChatLiteLLM (BYO provider) |
+| Proxy | Nginx (reverse proxy, single entry point on port 80) |
 | Deploy | Docker Compose |
 
 ## Project Structure
@@ -85,7 +93,8 @@ macro-ai/
 ├── frontend/           # Next.js 16 app
 │   ├── app/            # App Router (auth, app, onboarding)
 │   ├── components/     # ShadCN UI + custom components
-│   └── lib/            # API clients, stores, websocket
+│   ├── lib/            # API clients, stores, websocket
+│   └── Dockerfile      # Multi-stage build (deps → build → runner)
 ├── backend/            # FastAPI server
 │   ├── app/
 │   │   ├── api/v1/     # REST + WebSocket endpoints
@@ -93,9 +102,12 @@ macro-ai/
 │   │   ├── schemas/    # Pydantic request/response schemas
 │   │   ├── services/   # Business logic + AI agent
 │   │   └── utils/      # Crypto, helpers
-│   └── seeds/          # Food database seed data
+│   ├── seeds/          # Food database seed data
+│   └── Dockerfile      # uv sync + uvicorn
+├── nginx/
+│   └── nginx.conf      # Reverse proxy (frontend, API, WebSocket)
 ├── docs/               # PRD + Architecture spec
-└── docker-compose.yml
+└── docker-compose.yml  # All services: nginx, frontend, backend, mongodb, redis
 ```
 
 ## API Endpoints

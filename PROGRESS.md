@@ -1,8 +1,8 @@
 # MacroAI — Progress Tracker
 
-> Last updated: 2026-02-09 (Phase 4 complete)
+> Last updated: 2026-02-11 (Docker & Deployment fixed)
 
-## Current Phase: Phase 4 — Polish & Scale (Complete)
+## Current Phase: Phase 4 Complete + Docker Production-Ready
 
 Target: **v1.0.0** — Production-ready with food UX improvements, recipes, export, and UI polish
 
@@ -226,6 +226,20 @@ Target: **v1.0.0** — Production-ready with food UX improvements, recipes, expo
 - [x] AI tool update: search_food_database now accepts user_id, marks [FAVORITE] foods in results
 - [x] AI prompt update: mention favorites preference in system prompt
 
+## Docker & Deployment (2026-02-11) ✅
+
+- [x] Backend Dockerfile fixed: `uv sync --frozen --no-dev --no-cache` (was broken `uv pip install -r`)
+- [x] Frontend Dockerfile: `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_SINGLE_USER_MODE` build args (Next.js inlines at build time)
+- [x] Nginx reverse proxy: single entry point on port 80
+  - `/` → frontend (port 3000)
+  - `/api/` → backend (port 8000)
+  - `/api/v1/chat/ws` → WebSocket with upgrade headers
+  - `/health` → backend health check
+- [x] docker-compose.yml: nginx service, `expose` (not `ports`) for frontend/backend, `MONGODB_URL`/`REDIS_URL` environment overrides
+- [x] Frontend API client: empty `NEXT_PUBLIC_API_URL` = same-origin (relative URLs via nginx)
+- [x] Frontend WebSocket: derives WS URL from `window.location` when `NEXT_PUBLIC_API_URL` is empty (SSR-safe)
+- [x] All services verified healthy: `curl http://localhost/health` → `{"status":"healthy","checks":{"mongodb":"ok","redis":"ok"}}`
+
 ## Deferred
 
 - [ ] Serwist service worker + offline support
@@ -247,6 +261,7 @@ Target: **v1.0.0** — Production-ready with food UX improvements, recipes, expo
 | AI | LangGraph 1.0 + ChatLiteLLM (BYO provider — Claude, OpenAI, local LLMs) |
 | Charts | Recharts |
 | Tasks | ARQ (async Redis queue) |
+| Proxy | Nginx (reverse proxy, port 80) |
 | Deploy | Docker Compose |
 
 ## Routes (13 total)
